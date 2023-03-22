@@ -1,0 +1,762 @@
+      
+From 59027add92e6a9554852a8d57507b4283c47a570 Mon Sep 17 00:00:00 2001
+From: Li Xiaodong <xiaodong.li@thundersoft.com>
+Date: Tue, 27 Dec 2022 18:23:52 +0800
+Subject: [PATCH] [FW]:[EEPROM]:Add lib for eeprom read/write
+
+Add cpp lib of read/write eeprom fm24c32
+
+Change-Id: Ie5daa825d7269b9d9f25863118408453a966ad08
+---
+
+diff --git a/libs/fm24c32/Android.bp b/libs/fm24c32/Android.bp
+new file mode 100644
+index 0000000..2edb554
+--- /dev/null
++++ b/libs/fm24c32/Android.bp
+@@ -0,0 +1,36 @@
++// Copyright (C) 2017 The Android Open Source Project
++//
++// Licensed under the Apache License, Version 2.0 (the "License");
++// you may not use this file except in compliance with the License.
++// You may obtain a copy of the License at
++//
++//      http://www.apache.org/licenses/LICENSE-2.0
++//
++// Unless required by applicable law or agreed to in writing, software
++// distributed under the License is distributed on an "AS IS" BASIS,
++// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++// See the License for the specific language governing permissions and
++// limitations under the License.
++
++cc_library_static {
++    name: "libfm24c32",
++    host_supported: true,
++    vendor_available: true,
++
++    min_sdk_version: "29",
++
++    srcs: ["core/fm24c32.cpp"],
++    export_include_dirs: ["include"],
++    shared_libs: [],
++    static_libs: [],
++
++    cflags: ["-Wall", "-Werror"],
++}
++
++cc_test {
++    name: "fm24c32demo",
++    srcs: ["demo/fm24c32demo.cpp"],
++    shared_libs: [],
++    static_libs: ["libfm24c32"],
++    cflags: ["-Wall", "-Werror"],
++}
+diff --git a/libs/fm24c32/core/fm24c32.cpp b/libs/fm24c32/core/fm24c32.cpp
+new file mode 100644
+index 0000000..0540445
+--- /dev/null
++++ b/libs/fm24c32/core/fm24c32.cpp
+@@ -0,0 +1,127 @@
++#include "fm24c32.h"
++#include <sys/ioctl.h>
++
++Fm24c32::Fm24c32(enum fm24c32_device device)
++{
++    m_fd = open(fm24c32_dev, O_RDWR);
++    if(m_fd < 0){
++        cout<<"设备打开失败"<<endl;
++    }
++    else {
++        cout<<"设备打开成功"<<endl;
++    }
++    activity_device = device;
++}
++
++Fm24c32::~Fm24c32()
++{
++    close(m_fd);
++}
++
++int Fm24c32::fm24c3_ioctl(
++    unsigned char* buf,
++    unsigned int size,
++    unsigned short addr,
++    unsigned int cmd)
++{
++    int rc = -1;
++    fm24c32_userdata_t  m_fm24c32_userdata;
++
++    m_fm24c32_userdata.addr = addr;
++    m_fm24c32_userdata.buf = buf;
++    m_fm24c32_userdata.device = activity_device;
++    m_fm24c32_userdata.fm24c32_slave_addr = 0;
++    m_fm24c32_userdata.len = size;
++    m_fm24c32_userdata.m_operation = WRITE_FM24C3;
++    printf("cmd = %u\n",cmd);
++    rc = ioctl(m_fd,cmd,&m_fm24c32_userdata);
++    if (rc) {
++        printf("<%s %d> ioctl fail, rc = %d\n", __func__, __LINE__, rc);
++    }
++
++    return rc;
++}
++
++int Fm24c32::read_data_memory(
++    unsigned char* buf,
++    unsigned int size,
++    unsigned short addr)
++{
++    int rc = -1;
++    printf("FM24C32_READ_DATA_MEMORY = %u\n", (unsigned int)FM24C32_READ_DATA_MEMORY);
++    rc = fm24c3_ioctl(buf,size,addr,FM24C32_READ_DATA_MEMORY);
++    return rc;
++}
++
++int Fm24c32::write_data_memory(
++    unsigned char* buf,
++    unsigned int size,
++    unsigned short addr)
++{
++    int rc = -1;
++    rc = fm24c3_ioctl(buf,size,addr,FM24C32_WRITE_DATA_MEMORY);
++    return rc;
++}
++
++int Fm24c32::read_data_secunty(
++    unsigned char* buf,
++    unsigned int size,
++    unsigned short addr)
++{
++    int rc = -1;
++    rc = fm24c3_ioctl(buf,size,addr,FM24C32_READ_SECURITY_SECTOR);
++    return rc;
++}
++
++int Fm24c32::write_data_secunty(
++    unsigned char* buf,
++    unsigned int size,
++    unsigned short addr)
++{
++    int rc = -1;
++    rc = fm24c3_ioctl(buf,size,addr,FM24C32_WRITE_SECURITY_SECTOR);
++    return rc;
++}
++
++int Fm24c32::read_deviceId(unsigned char* buf)
++{
++    int rc  = -1;
++    fm24c32_userdata_t  m_fm24c32_userdata;
++
++    m_fm24c32_userdata.addr = 0;
++    m_fm24c32_userdata.buf = buf;
++    m_fm24c32_userdata.device = activity_device;
++    m_fm24c32_userdata.fm24c32_slave_addr = 0;
++    m_fm24c32_userdata.len = 0;
++    m_fm24c32_userdata.m_operation = READ_FM24C3;
++    rc = ioctl(m_fd,FM24C32_READ_UNIQUE_ID,&m_fm24c32_userdata);
++    if (rc) {
++        printf("<%s %d> ioctl fail, rc = %d\n", __func__, __LINE__, rc);
++    }
++    return rc;
++}
++
++int Fm24c32::user_custon_action(
++        unsigned char* buf,
++        unsigned int size,
++        unsigned short addr,
++        enum operation direction,
++		unsigned int slave)
++{
++    int rc = -1;
++    fm24c32_userdata_t m_fm24c32_userdata;
++
++    m_fm24c32_userdata.addr = addr;
++    m_fm24c32_userdata.buf = buf;
++    m_fm24c32_userdata.device = activity_device;
++    m_fm24c32_userdata.fm24c32_slave_addr = slave;
++    m_fm24c32_userdata.len = size;
++    m_fm24c32_userdata.m_operation = direction;
++    printf("m_operation = %d, cmd = %u\n", direction, (unsigned int)USER_CUSTON_ACTION);
++    rc = ioctl(m_fd,USER_CUSTON_ACTION,&m_fm24c32_userdata);
++    if (rc) {
++        printf("<%s %d> ioctl fail, rc = %d\n", __func__, __LINE__, rc);
++    }
++
++    return rc;
++}
+diff --git a/libs/fm24c32/demo/fm24c32demo.cpp b/libs/fm24c32/demo/fm24c32demo.cpp
+new file mode 100644
+index 0000000..83ee316
+--- /dev/null
++++ b/libs/fm24c32/demo/fm24c32demo.cpp
+@@ -0,0 +1,264 @@
++#include "fm24c32.h"
++
++int data_memory_test(Fm24c32 *m_fm24c32)
++{
++	int rc = -1;
++	int i = 0;
++	unsigned int num_byte = 1024;
++	unsigned char buf[num_byte];
++
++	printf("-----------------------------------------------------------------------------------------\n");
++	printf("start data_memory_test\n");
++	//1. 写0x11
++	memset(buf, 0 ,sizeof(buf));
++	for(i = 0;i <num_byte;i++) {
++		buf[i] = 0x11;
++	}
++	rc = m_fm24c32->write_data_memory(buf,num_byte,0x00);
++	if(rc < 0) {
++		printf("写data memory失败\n");
++		return rc;
++	}
++
++	//2. 读出数据
++	memset(buf, 0 ,sizeof(buf));
++	rc = m_fm24c32->read_data_memory(buf,num_byte,0x00);
++	if(rc < 0) {
++		printf("读data memory失败\n");
++		return rc;
++	}
++	printf("第一次读取\n");
++	for(i = 0;i <num_byte;i++) {
++		if(i % 9 || i == 0) {
++			printf("%#x  ",buf[i]);
++		} else {
++			printf("%#x\n",buf[i]);
++		}
++	}
++	printf("\n");
++
++	//3. 写0x22
++	memset(buf, 0 ,sizeof(buf));
++	for(i = 0;i <num_byte;i++) {
++		buf[i] = 0x22;
++	}
++	rc = m_fm24c32->write_data_memory(buf,num_byte,0x00);
++	if(rc < 0) {
++		printf("写data memory失败\n");
++		return rc;
++	}
++
++	//4. 再次读出数据
++	rc = m_fm24c32->read_data_memory(buf,num_byte,0x00);
++	if(rc < 0) {
++		printf("读data memory失败\n");
++		return rc;
++	}
++	printf("第二次读取\n");
++	for(i = 0;i <num_byte;i++) {
++		if(i % 9 || i == 0) {
++			printf("%#x  ",buf[i]);
++		} else {
++			printf("%#x\n",buf[i]);
++		}
++	}
++	printf("\n");
++	printf("data_memory_test done\n");
++	printf("-----------------------------------------------------------------------------------------\n");
++	return rc;
++}
++
++int user_custon_action_test(Fm24c32 *m_fm24c32)
++{
++	int rc = -1;
++	int i = 0;
++	unsigned int num_byte = 32;
++	unsigned char buf[num_byte];
++	unsigned int slave = 0xa0;
++
++	printf("-----------------------------------------------------------------------------------------\n");
++	printf("start user_custon_action_test\n");
++	//1. 写0x11
++	memset(buf, 0 ,sizeof(buf));
++	for(i = 0;i <num_byte;i++) {
++		buf[i] = 0x11;
++	}
++	rc = m_fm24c32->user_custon_action(buf,num_byte,0x00,WRITE_FM24C3,slave);
++	if(rc < 0) {
++		rc = *(int *)buf;
++		printf("写操作失败,%d\n",rc);
++		//return rc;
++	}
++
++	//2. 读出数据
++	memset(buf, 0 ,sizeof(buf));
++	rc = m_fm24c32->user_custon_action(buf,num_byte,0x00,READ_FM24C3,slave);
++	if(rc < 0) {
++		rc = *(int *)buf;
++		printf("写操作失败,%d\n",rc);
++		return rc;
++	}
++	printf("第一次读取\n");
++	for(i = 0;i <num_byte;i++) {
++		if(i % 10  && i != 0) {
++			printf("%#x  ",buf[i]);
++		} else {
++			printf("%#x\n",buf[i]);
++		}
++	}
++	printf("\n");
++
++	//3. 写0x22
++	memset(buf, 0 ,sizeof(buf));
++	for(i = 0;i <num_byte;i++) {
++		buf[i] = 0x33;
++	}
++	rc = m_fm24c32->user_custon_action(buf,num_byte,0x00,WRITE_FM24C3,slave);
++	if(rc < 0) {
++		rc = *(int *)buf;
++		printf("写操作失败,%d\n",rc);
++		return rc;
++	}
++
++	//4. 再次读出数据
++	rc = m_fm24c32->user_custon_action(buf,num_byte,0x00,READ_FM24C3,slave);
++	if(rc < 0) {
++	rc = *(int *)buf;
++		printf("写操作失败,%d\n",rc);
++		return rc;
++	}
++	printf("第二次读取\n");
++	for(i = 0;i < num_byte;i++) {
++		if(i % 10 == 0 || i != 0) {
++			printf("%#x  ",buf[i]);
++		} else {
++			printf("%#x\n",buf[i]);
++		}
++	}
++	printf("\n");
++	printf("user_custon_action_test done\n");
++	printf("-----------------------------------------------------------------------------------------\n");
++	return rc;
++}
++
++int data_secunty_test(Fm24c32 *m_fm24c32)
++{
++	int rc = -1;
++	int i = 0;
++	unsigned int num_byte = 32;
++	unsigned char buf[num_byte];
++
++	printf("-----------------------------------------------------------------------------------------\n");
++	printf("start data_secunty_test\n");
++	//1. 写0x11
++	memset(buf, 0 ,sizeof(buf));
++	for(i = 0;i <num_byte;i++) {
++		buf[i] = 0x11;
++	}
++	rc = m_fm24c32->write_data_secunty(buf,num_byte,0x00);
++	if(rc < 0) {
++		printf("写data secunty失败\n");
++		return rc;
++	}
++
++	//2. 读出数据
++	memset(buf, 0 ,sizeof(buf));
++	rc = m_fm24c32->read_data_secunty(buf,num_byte,0x00);
++	if(rc < 0) {
++		printf("读data secunty失败\n");
++		return rc;
++	}
++	printf("第一次读取\n");
++	for(i = 0;i <num_byte;i++) {
++		if(i % 9 || i == 0) {
++			printf("%#x  ",buf[i]);
++		} else {
++			printf("%#x\n",buf[i]);
++		}
++	}
++	printf("\n");
++	printf("data_secunty_test done\n");
++	printf("-----------------------------------------------------------------------------------------\n");
++	return rc;
++}
++
++int read_deviceId_test(Fm24c32 *m_fm24c32)
++{
++	int rc = -1;
++	int i ;
++	unsigned int num_byte = 16;
++	unsigned char buf[num_byte];
++
++	printf("-----------------------------------------------------------------------------------------\n");
++	printf("start read_deviceId_test\n");
++	memset(buf,0,num_byte);
++	rc = m_fm24c32->read_deviceId(buf);
++	if(rc < 0 ) {
++		printf("read id fail");
++	}
++	for(i = 0;i <num_byte;i++) {
++			printf("%#x  ",buf[i]);
++	}
++	printf("\n");
++	printf("read_deviceId_test done\n");
++	printf("-----------------------------------------------------------------------------------------\n");
++	return rc;
++}
++
++int main()
++{
++	int rc = -1;
++	Fm24c32 *r_fm24c32 = new Fm24c32(RIGHT_FM24C32);
++	Fm24c32 *l_fm24c32 = new Fm24c32(LEFT_FM24C32);
++
++	rc = data_memory_test(r_fm24c32);
++	if(rc < 0) {
++		printf("data memory 测试失败\n");
++		return rc;
++	}
++
++	rc = data_secunty_test(r_fm24c32);
++	if(rc < 0) {
++		printf("data secunty 测试失败\n");
++		return rc;
++	}
++
++	rc = user_custon_action_test(r_fm24c32);
++	if(rc < 0) {
++		printf("自由读写测试失败");
++		return rc;
++	}
++
++	rc = read_deviceId_test(r_fm24c32);
++	if(rc < 0) {
++		printf("读ID测试失败");
++	}
++
++	rc = data_memory_test(l_fm24c32);
++	if(rc < 0) {
++		printf("data memory 测试失败\n");
++		return rc;
++	}
++
++	rc = data_secunty_test(l_fm24c32);
++	if(rc < 0) {
++		printf("data secunty 测试失败\n");
++		return rc;
++	}
++
++	rc = user_custon_action_test(l_fm24c32);
++	if(rc < 0) {
++		printf("自由读写测试失败");
++		return rc;
++	}
++
++	rc = read_deviceId_test(l_fm24c32);
++	if(rc < 0) {
++		printf("读ID测试失败");
++	}
++
++	delete r_fm24c32;
++	delete l_fm24c32;
++
++	return rc;
++}
+diff --git a/libs/fm24c32/include/fm24c32.h b/libs/fm24c32/include/fm24c32.h
+new file mode 100644
+index 0000000..183031d
+--- /dev/null
++++ b/libs/fm24c32/include/fm24c32.h
+@@ -0,0 +1,185 @@
++#ifndef _FM24C3_DRIVER_H_
++#define _FM24C3_DRIVER_H_
++
++#include "ioctl.h"
++
++#define fm24c32_dev    "/dev/fm24c32" //设备文件
++
++//ioctl操作码
++#define FM24C32_READ_DATA_MEMORY       _IOR('c',0,unsigned int)   //读DATA_MEMORY,操作地址范围0x0 ~ 0xfff
++#define FM24C32_READ_SECURITY_SECTOR   _IOR('c',1,unsigned int)   //读SECUNTY_SECTOR,操作地址范围0x0 ~ 0x1f
++#define FM24C32_WRITE_DATA_MEMORY      _IOW('c',0,unsigned int)   //写DATA_MEMORY,操作地址范围0x0 ~ 0xfff
++#define FM24C32_WRITE_SECURITY_SECTOR  _IOW('c',1,unsigned int)   //写SECUNTY_SECTOR,操作地址范围0x0 ~ 0x1f
++#define USER_CUSTON_ACTION             _IOR('c',2,unsigned int)   //用户自由读写,根据用户需求读写
++#define FM24C32_READ_UNIQUE_ID         _IOR('c',3,unsigned int)   //读设备id，地址固定为0x10
++
++enum fm24c32_device {
++    LEFT_FM24C32,   //左芯片
++    RIGHT_FM24C32,  //右芯片
++};
++
++enum operation {
++    READ_FM24C3,    //读操作
++    WRITE_FM24C3,   //写操作
++};
++
++typedef struct {
++    unsigned int len;         //传输数据长度
++    unsigned short addr;      //读写起始地址
++    unsigned char *buf;       //数据传输buf
++    enum fm24c32_device device; //具体的设备，左或右
++    enum operation m_operation; //读写类型
++    unsigned int fm24c32_slave_addr; //从机地址，
++                //不是USER_CUSTON_ACTION时此参数无效
++}fm24c32_userdata_t;
++
++class Fm24c32
++{
++private:
++    int m_fd;   //打开的设备文件
++    enum fm24c32_device activity_device; //正在使用的设备
++
++    /*************************************************************
++     * fm24c3_ioctl
++     *
++     * @brief  驱动操作接口
++     * @param buf 数据传输所需的buf
++     * @param size 传输数据的大小
++     * @param addr 操作起始地址
++     * @param cmd  操作码
++     *
++     * @return 成功返回0，失败返回-1
++     *************************************************************/
++    int fm24c3_ioctl(
++        unsigned char* buf,
++        unsigned int size,
++        unsigned short addr,
++        unsigned int cmd);
++
++public:
++    /*************************************************************
++     * Fm24c32
++     *
++     * @brief  Fm24c32 类的构造方法，用于创建Fm24c32类,并完成初始化
++     *
++     * @return None
++     *************************************************************/
++    Fm24c32(enum fm24c32_device device);
++
++    /*************************************************************
++     * ~Fm24c32
++     *
++     * @brief  Fm24c32 类的析构方法
++     *
++     * @return None
++     *************************************************************/
++    ~Fm24c32();
++
++    /*************************************************************
++     * read_data_memory
++     *
++     * @brief  读DATA MEMORY内存单元专用方法
++     *
++     * @param buf 数据传输所需的buf
++     * @param size 传输数据的大小
++     * @param addr 操作起始地址
++     *
++     * @return 成功返回0，失败返回-1
++     *************************************************************/
++    int read_data_memory(
++        unsigned char* buf,
++        unsigned int size,
++        unsigned short addr);
++
++    /*************************************************************
++     * write_data_memory
++     *
++     * @brief  写DATA MEMORY内存单元专用方法
++     *
++     * @param buf 数据传输所需的buf
++     * @param size 传输数据的大小
++     * @param addr 操作起始地址
++     *
++     * @return 成功返回0，失败返回-1
++     *************************************************************/
++    int write_data_memory(
++        unsigned char* buf,
++        unsigned int size,
++        unsigned short addr);
++
++    /*************************************************************
++     * read_data_secunty
++     *
++     * @brief  读Security Sector专用方法
++     *
++     * @param buf 数据传输所需的buf
++     * @param size 传输数据的大小
++     * @param addr 操作起始地址
++     *
++     * @return 成功返回0，失败返回-1
++     *************************************************************/
++    int read_data_secunty(
++        unsigned char* buf,
++        unsigned int size,
++        unsigned short addr);
++
++    /*************************************************************
++     * write_data_secunty
++     *
++     * @brief  写Security Sector专用方法
++     *
++     * @param buf 数据传输所需的buf
++     * @param size 传输数据的大小
++     * @param addr 操作起始地址
++     *
++     * @return 成功返回0，失败返回-1
++     *************************************************************/
++    int write_data_secunty(
++        unsigned char* buf,
++        unsigned int size,
++        unsigned short addr);
++
++    /*************************************************************
++     * user_custon_action
++     *
++     * @brief  用户自由读写方法，使用该方法可以自由设置从机地址
++     *
++     * @param buf 数据传输所需的buf
++     * @param size 传输数据的大小
++     * @param addr 操作起始地址
++     * @param direction 传输方向
++     * @param slave 从机地址
++     *
++     * @return 成功返回0，失败返回-1
++     *************************************************************/
++    int user_custon_action(
++        unsigned char* buf,
++        unsigned int size,
++        unsigned short addr,
++        enum operation direction,
++		unsigned int slave);
++
++    /*************************************************************
++     * read_deviceId
++     *
++     * @brief  读取设备ID专用方法
++     *
++     * @param buf 返回ID的buf
++     *
++     * @return 成功返回0，失败返回-1
++     *************************************************************/
++    int read_deviceId(unsigned char* buf);
++};
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <iostream>
++#include <string.h>
++#include <sys/types.h>
++#include <unistd.h>
++#include <sys/stat.h>
++#include <fcntl.h>
++
++using namespace std;
++
++#endif
+diff --git a/libs/fm24c32/include/ioctl.h b/libs/fm24c32/include/ioctl.h
+new file mode 100644
+index 0000000..2d7727e
+--- /dev/null
++++ b/libs/fm24c32/include/ioctl.h
+@@ -0,0 +1,107 @@
++/* SPDX-License-Identifier: GPL-2.0 WITH Linux-syscall-note */
++#ifndef _UAPI_ASM_GENERIC_IOCTL_H
++#define _UAPI_ASM_GENERIC_IOCTL_H
++
++/* ioctl command encoding: 32 bits total, command in lower 16 bits,
++ * size of the parameter structure in the lower 14 bits of the
++ * upper 16 bits.
++ * Encoding the size of the parameter structure in the ioctl request
++ * is useful for catching programs compiled with old versions
++ * and to avoid overwriting user space outside the user buffer area.
++ * The highest 2 bits are reserved for indicating the ``access mode''.
++ * NOTE: This limits the max parameter size to 16kB -1 !
++ */
++
++/*
++ * The following is for compatibility across the various Linux
++ * platforms.  The generic ioctl numbering scheme doesn't really enforce
++ * a type field.  De facto, however, the top 8 bits of the lower 16
++ * bits are indeed used as a type field, so we might just as well make
++ * this explicit here.  Please be sure to use the decoding macros
++ * below from now on.
++ */
++#define _IOC_NRBITS	8
++#define _IOC_TYPEBITS	8
++
++/*
++ * Let any architecture override either of the following before
++ * including this file.
++ */
++
++#ifndef _IOC_SIZEBITS
++# define _IOC_SIZEBITS	14
++#endif
++
++#ifndef _IOC_DIRBITS
++# define _IOC_DIRBITS	2
++#endif
++
++#define _IOC_NRMASK	((1 << _IOC_NRBITS)-1)
++#define _IOC_TYPEMASK	((1 << _IOC_TYPEBITS)-1)
++#define _IOC_SIZEMASK	((1 << _IOC_SIZEBITS)-1)
++#define _IOC_DIRMASK	((1 << _IOC_DIRBITS)-1)
++
++#define _IOC_NRSHIFT	0
++#define _IOC_TYPESHIFT	(_IOC_NRSHIFT+_IOC_NRBITS)
++#define _IOC_SIZESHIFT	(_IOC_TYPESHIFT+_IOC_TYPEBITS)
++#define _IOC_DIRSHIFT	(_IOC_SIZESHIFT+_IOC_SIZEBITS)
++
++/*
++ * Direction bits, which any architecture can choose to override
++ * before including this file.
++ *
++ * NOTE: _IOC_WRITE means userland is writing and kernel is
++ * reading. _IOC_READ means userland is reading and kernel is writing.
++ */
++
++#ifndef _IOC_NONE
++# define _IOC_NONE	0U
++#endif
++
++#ifndef _IOC_WRITE
++# define _IOC_WRITE	1U
++#endif
++
++#ifndef _IOC_READ
++# define _IOC_READ	2U
++#endif
++
++#define _IOC(dir,type,nr,size) \
++	(((dir)  << _IOC_DIRSHIFT) | \
++	 ((type) << _IOC_TYPESHIFT) | \
++	 ((nr)   << _IOC_NRSHIFT) | \
++	 ((size) << _IOC_SIZESHIFT))
++
++#ifndef __KERNEL__
++#define _IOC_TYPECHECK(t) (sizeof(t))
++#endif
++
++/*
++ * Used to create numbers.
++ *
++ * NOTE: _IOW means userland is writing and kernel is reading. _IOR
++ * means userland is reading and kernel is writing.
++ */
++#define _IO(type,nr)		_IOC(_IOC_NONE,(type),(nr),0)
++#define _IOR(type,nr,size)	_IOC(_IOC_READ,(type),(nr),(_IOC_TYPECHECK(size)))
++#define _IOW(type,nr,size)	_IOC(_IOC_WRITE,(type),(nr),(_IOC_TYPECHECK(size)))
++#define _IOWR(type,nr,size)	_IOC(_IOC_READ|_IOC_WRITE,(type),(nr),(_IOC_TYPECHECK(size)))
++#define _IOR_BAD(type,nr,size)	_IOC(_IOC_READ,(type),(nr),sizeof(size))
++#define _IOW_BAD(type,nr,size)	_IOC(_IOC_WRITE,(type),(nr),sizeof(size))
++#define _IOWR_BAD(type,nr,size)	_IOC(_IOC_READ|_IOC_WRITE,(type),(nr),sizeof(size))
++
++/* used to decode ioctl numbers.. */
++#define _IOC_DIR(nr)		(((nr) >> _IOC_DIRSHIFT) & _IOC_DIRMASK)
++#define _IOC_TYPE(nr)		(((nr) >> _IOC_TYPESHIFT) & _IOC_TYPEMASK)
++#define _IOC_NR(nr)		(((nr) >> _IOC_NRSHIFT) & _IOC_NRMASK)
++#define _IOC_SIZE(nr)		(((nr) >> _IOC_SIZESHIFT) & _IOC_SIZEMASK)
++
++/* ...and for the drivers/sound files... */
++
++#define IOC_IN		(_IOC_WRITE << _IOC_DIRSHIFT)
++#define IOC_OUT	(_IOC_READ << _IOC_DIRSHIFT)
++#define IOC_INOUT	((_IOC_WRITE|_IOC_READ) << _IOC_DIRSHIFT)
++#define IOCSIZE_MASK	(_IOC_SIZEMASK << _IOC_SIZESHIFT)
++#define IOCSIZE_SHIFT	(_IOC_SIZESHIFT)
++
++#endif /* _UAPI_ASM_GENERIC_IOCTL_H */
+
+    
